@@ -1,101 +1,254 @@
-import Image from "next/image";
+"use client";
+import ActionButtons from "@/components/ActionButtons";
+import Header from "@/components/Header";
+import { useEffect, useRef, useReducer, useState } from "react";
+
+interface Shape {
+  id: number;
+  type: "rectangle" | "circle";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isDragging: boolean;
+}
+
+interface CanvasState {
+  context: CanvasRenderingContext2D | null;
+  shapes: Shape[];
+}
+
+type Action =
+  | { type: "SET_CONTEXT"; payload: CanvasRenderingContext2D }
+  | { type: "ADD_SHAPE"; payload: Shape }
+  | { type: "REMOVE_SHAPE"; payload: number }
+  | { type: "UPDATE_SHAPES"; payload: Shape[] };
+
+const reducer = (state: CanvasState, action: Action): CanvasState => {
+  switch (action.type) {
+    case "SET_CONTEXT":
+      return { ...state, context: action.payload };
+    case "ADD_SHAPE":
+      return { ...state, shapes: [...state.shapes, action.payload] };
+    case "REMOVE_SHAPE":
+      return { ...state, shapes: state.shapes.filter((shape) => shape.id !== action.payload) };
+    case "UPDATE_SHAPES":
+      return { ...state, shapes: action.payload };
+    default:
+      return state;
+  }
+};
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [state, dispatch] = useReducer(reducer, { context: null, shapes: [] });
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [resizingId, setResizingId] = useState<number | null>(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+  // History management
+  const [history, setHistory] = useState<CanvasState[]>([]);
+  const [redoHistory, setRedoHistory] = useState<CanvasState[]>([]);
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      dispatch({ type: "SET_CONTEXT", payload: ctx });
+    }
+  }, []);
+
+  const drawShapes = () => {
+    if (!state.context || !canvasRef.current) return;
+    const ctx = state.context;
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+
+    state.shapes.forEach((shape) => {
+      ctx.fillStyle = shape.type === "rectangle" ? "blue" : "red";
+
+      if (shape.type === "rectangle") {
+        ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
+      } else {
+        ctx.beginPath();
+        ctx.arc(shape.x, shape.y, shape.width / 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (shape.type === "rectangle") {
+        ctx.fillStyle = "black";
+        ctx.fillRect(shape.x + shape.width - 5, shape.y + shape.height - 5, 10, 10);
+      }
+
+      if (shape.type === "circle") {
+        ctx.fillStyle = "black";
+        const resizeX = shape.x + shape.width / 2 + 5;
+        const resizeY = shape.y;
+        ctx.fillRect(resizeX - 5, resizeY - 5, 10, 10);
+      }
+    });
+  };
+
+  useEffect(() => {
+    drawShapes();
+  }, [state.shapes]);
+
+  const addShape = (type: "rectangle" | "circle") => {
+    const newShape: Shape = {
+      id: Date.now(),
+      type,
+      x: 100,
+      y: 100,
+      width: 100,
+      height: 100,
+      isDragging: false,
+    };
+
+    saveHistory();
+    dispatch({ type: "ADD_SHAPE", payload: newShape });
+  };
+
+
+  const updateShapes = (updatedShapes: Shape[]) => {
+    saveHistory();
+    dispatch({ type: "UPDATE_SHAPES", payload: updatedShapes });
+  };
+
+  const saveHistory = () => {
+    setHistory((prevHistory) => [...prevHistory, state]);
+    setRedoHistory([]); // Clear redo history
+  };
+
+  const undo = () => {
+    if (history.length > 0) {
+      const lastState = history[history.length - 1];
+      setRedoHistory((prev) => [state, ...prev]);
+      setHistory((prev) => prev.slice(0, -1));
+      dispatch({ type: "UPDATE_SHAPES", payload: lastState.shapes });
+    }
+  };
+
+  const redo = () => {
+    if (redoHistory.length > 0) {
+      const nextState = redoHistory[0];
+      setHistory((prev) => [...prev, state]);
+      setRedoHistory((prev) => prev.slice(1));
+      dispatch({ type: "UPDATE_SHAPES", payload: nextState.shapes });
+    }
+  };
+
+  const handleMouseDown = (event: React.MouseEvent) => {
+    const { offsetX, offsetY } = event.nativeEvent;
+    const foundShape = state.shapes.find(
+      (s) => offsetX >= s.x && offsetX <= s.x + s.width && offsetY >= s.y && offsetY <= s.y + s.height
+    );
+
+    const foundResizer = state.shapes.find((s) => {
+      if (s.type === "rectangle") {
+        return (
+          offsetX >= s.x + s.width - 5 &&
+          offsetX <= s.x + s.width + 5 &&
+          offsetY >= s.y + s.height - 5 &&
+          offsetY <= s.y + s.height + 5
+        );
+      } else {
+        const resizeX = s.x + s.width / 2 + 5;
+        const resizeY = s.y;
+        return Math.abs(offsetX - resizeX) <= 5 && Math.abs(offsetY - resizeY) <= 5;
+      }
+    });
+
+    if (foundResizer) {
+      setResizingId(foundResizer.id);
+    } else if (foundShape) {
+      setDraggingId(foundShape.id);
+      setOffset({ x: offsetX - foundShape.x, y: offsetY - foundShape.y });
+    }
+  };
+
+  const handleMouseMove = (event: React.MouseEvent) => {
+    if (draggingId !== null) {
+      const { offsetX, offsetY } = event.nativeEvent;
+      updateShapes(
+        state.shapes.map((shape) =>
+          shape.id === draggingId ? { ...shape, x: offsetX - offset.x, y: offsetY - offset.y } : shape
+        )
+      );
+    }
+
+    if (resizingId !== null) {
+      const { offsetX, offsetY } = event.nativeEvent;
+      updateShapes(
+        state.shapes.map((shape) => {
+          if (shape.id === resizingId) {
+            if (shape.type === "rectangle") {
+              return { ...shape, width: Math.max(20, offsetX - shape.x), height: Math.max(20, offsetY - shape.y) };
+            } else {
+              const newSize = Math.max(20, Math.abs(offsetX - shape.x));
+              return { ...shape, width: newSize, height: newSize };
+            }
+          }
+          return shape;
+        })
+      );
+    }
+  };
+
+  const handleMouseUp = () => {
+    setDraggingId(null);
+    setResizingId(null);
+  };
+  const saveDesign = () => {
+     if (!canvasRef.current) return;
+     localStorage.setItem("design", canvasRef.current.toDataURL());
+  };
+  const loadDesign = () => {
+    if (!canvasRef.current || !state.context) return;
+    const savedDesign = localStorage.getItem("design");
+    if (savedDesign) {
+      const img = new Image();
+      img.src = savedDesign;
+      img.onload = () => {
+        state.context?.clearRect(0, 0, canvasRef.current?.width ?? 0, canvasRef.current?.height ?? 0);
+        state.context?.drawImage(img, 0, 0);
+      };
+    }
+  };
+
+  const downloadDesign = () => {
+    if (!canvasRef.current) return;
+    const dataURL = canvasRef.current.toDataURL("image/png");
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.-]/g, "_");
+    link.href = dataURL;
+    link.download = `design_${timestamp}.png`;
+    link.click();
+  };
+  return (
+    <div className="flex flex-col items-center space-y-4"> 
+      <Header />
+      <canvas
+        ref={canvasRef}
+        width={800}
+        height={600}
+        className="border shadow-md"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+      />
+       <ActionButtons
+          addShape={addShape}
+          undo={undo}
+          redo={redo}
+          saveDesign={saveDesign}
+          loadDesign={loadDesign}
+          downloadDesign={downloadDesign}
+        />
+     
     </div>
   );
 }
