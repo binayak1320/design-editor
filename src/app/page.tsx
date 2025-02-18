@@ -1,47 +1,16 @@
 "use client";
-import ActionButtons from "@/components/ActionButtons";
-import Header from "@/components/Header";
 import { useEffect, useRef, useReducer, useState } from "react";
 
-interface Shape {
-  id: number;
-  type: "rectangle" | "circle";
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  isDragging: boolean;
-}
+import ActionButtons from "@/components/ActionButtons";
+import Header from "@/components/Header";
 
-interface CanvasState {
-  context: CanvasRenderingContext2D | null;
-  shapes: Shape[];
-}
+import { Shape, CanvasState } from "@/types";
+import { canvasReducer } from "@/reducers/canvasReducer";
 
-type Action =
-  | { type: "SET_CONTEXT"; payload: CanvasRenderingContext2D }
-  | { type: "ADD_SHAPE"; payload: Shape }
-  | { type: "REMOVE_SHAPE"; payload: number }
-  | { type: "UPDATE_SHAPES"; payload: Shape[] };
-
-const reducer = (state: CanvasState, action: Action): CanvasState => {
-  switch (action.type) {
-    case "SET_CONTEXT":
-      return { ...state, context: action.payload };
-    case "ADD_SHAPE":
-      return { ...state, shapes: [...state.shapes, action.payload] };
-    case "REMOVE_SHAPE":
-      return { ...state, shapes: state.shapes.filter((shape) => shape.id !== action.payload) };
-    case "UPDATE_SHAPES":
-      return { ...state, shapes: action.payload };
-    default:
-      return state;
-  }
-};
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [state, dispatch] = useReducer(reducer, { context: null, shapes: [] });
+  const [state, dispatch] = useReducer(canvasReducer, { context: null, shapes: [] });
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [resizingId, setResizingId] = useState<number | null>(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
